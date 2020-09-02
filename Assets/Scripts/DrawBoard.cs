@@ -10,10 +10,11 @@ public class DrawBoard : MonoBehaviour, IDragHandler, IPointerDownHandler, IPoin
     public float scale = 1;
     public GameObject wheelPrefab;
     public GameObject carRoot;
-    public WheelCollider frontWheelCollider, rearWheelCollider;
-    public GameObject frontWheel, rearWheel;
+    public WheelJoint2D frontWheelJoint, rearWheelJoint;
     public CameraMovement myCamera;
     public RaceBarScript raceBarScript;
+    public BasicCarMovement basicCarMovement;
+    public MeshRenderer[] renderers;
     
 
     private bool m_Pressed = false,m_Dragged = false;
@@ -28,6 +29,7 @@ public class DrawBoard : MonoBehaviour, IDragHandler, IPointerDownHandler, IPoin
     {
         createdMesh = new Mesh();
         myCamera.AssingCar(carRoot);
+        Time.timeScale = 1.4f;
     }
 
     private void Update()
@@ -36,6 +38,7 @@ public class DrawBoard : MonoBehaviour, IDragHandler, IPointerDownHandler, IPoin
             dragTimer += Time.deltaTime;
         
     }
+
     //Scales created mesh
     void UpdateVertices()
     {
@@ -98,6 +101,7 @@ public class DrawBoard : MonoBehaviour, IDragHandler, IPointerDownHandler, IPoin
             leadTra.anchoredPosition3D = new Vector3(eventData.position.x-100, eventData.position.y-30, -51);
         }
     }
+
     //Creates drawed car to a mesh 
     void CreateMesh()
     {
@@ -106,13 +110,38 @@ public class DrawBoard : MonoBehaviour, IDragHandler, IPointerDownHandler, IPoin
         if (tmpmesh.vertexCount < 7) return;
         createdMesh = tmpmesh;
 
-        if (testMesh.GetComponent<MeshCollider>() != null)
-            Destroy(testMesh.GetComponent<MeshCollider>());
+        if (testMesh.GetComponent<PolygonCollider2D>() != null)
+            Destroy(testMesh.GetComponent<PolygonCollider2D>());
 
         UpdateVertices();
         baseVertices = createdMesh.vertices;
         baseTriangles = createdMesh.triangles;
 
+
+        //Polygon Collider Path
+        Vector2[] colliderPath = new Vector2[baseVertices.Length];
+        int j = 0;
+        for(int i = 0; i < baseVertices.Length; i++)
+        {
+            if(i%2 == 0)
+            {
+                colliderPath[j].x = baseVertices[i].x;
+                colliderPath[j].y = baseVertices[i].y;
+                j++;
+            }
+        }
+        for (int i = baseVertices.Length;i >= 0 ; i--)
+        {
+            if(i %2 == 1)
+            {
+                colliderPath[j].x = baseVertices[i].x;
+                colliderPath[j].y = baseVertices[i].y;
+                j++;
+            }
+        }
+        /////
+
+        //New Mesh Vertices
         Vector3[] addedVertices = new Vector3[baseVertices.Length * 2];
         int[] addedTriangles = new int[baseTriangles.Length * 2 + baseTriangles.Length*6 +12];
         for(int i = 0; i < addedVertices.Length; i++)
@@ -123,7 +152,9 @@ public class DrawBoard : MonoBehaviour, IDragHandler, IPointerDownHandler, IPoin
                 addedVertices[i].z += 0.2f;
             }
         }
+        /////
 
+        //New Mesh Triangles
         int[] upTriang = new int[baseTriangles.Length * 3], lowTriang = new int[baseTriangles.Length *3];
         for (int i = 0; i < baseTriangles.Length*4; i++)
         {
@@ -158,7 +189,7 @@ public class DrawBoard : MonoBehaviour, IDragHandler, IPointerDownHandler, IPoin
         for (int i = baseTriangles.Length * 5; i < baseTriangles.Length * 8; i++)
         {
             addedTriangles[i] = lowTriang[i - baseTriangles.Length * 5];
-        }
+        }        
 
         int tmp = addedTriangles.Length;
         addedTriangles[tmp - 12] = addedTriangles[baseTriangles.Length];
@@ -181,44 +212,55 @@ public class DrawBoard : MonoBehaviour, IDragHandler, IPointerDownHandler, IPoin
             addedTriangles[i + 2] = addedTriangles[i];
             addedTriangles[i] = tmp1;
         }
+        /////
 
         createdMesh.vertices = addedVertices;
         createdMesh.triangles = addedTriangles;
         createdMesh.RecalculateBounds();
 
+
+        //Place new mesh with desired position
         Vector3 dif = -createdMesh.bounds.center;
         for (int i = 0; i < addedVertices.Length; i++)
         {
             addedVertices[i] = addedVertices[i] + dif;
         }       
-
         createdMesh.vertices = addedVertices;    
         createdMesh.RecalculateNormals();
-        createdMesh.RecalculateBounds();
+        createdMesh.RecalculateBounds();        
 
         testMesh.transform.position = new Vector3(-createdMesh.bounds.center.x, -createdMesh.bounds.center.y, -createdMesh.bounds.center.z);
         testMesh.transform.rotation = Quaternion.Euler(0, testMesh.transform.rotation.y, 0);
-
-        frontWheel.transform.position = (createdMesh.vertices[0] + createdMesh.vertices[1] + createdMesh.vertices[baseVertices.Length] + createdMesh.vertices[1+baseVertices.Length])/4;
-        rearWheel.transform.position = (createdMesh.vertices[baseVertices.Length-1] + createdMesh.vertices[baseVertices.Length - 2] + createdMesh.vertices[baseVertices.Length*2-1] + createdMesh.vertices[baseVertices.Length*2-2])/4;
+        /////
 
         testMesh.mesh = createdMesh;
-        MeshCollider x = testMesh.gameObject.AddComponent<MeshCollider>();
-        x.convex = true;
-        x.sharedMesh = createdMesh;
+
+        //Assign new polygon collider with new path
+        PolygonCollider2D x = testMesh.gameObject.AddComponent<PolygonCollider2D>();
+        x.SetPath(0, colliderPath);
+        x.offset = testMesh.mesh.bounds.center-x.bounds.center;
+        /////
+
+        //Place Wheels at the ends of the mesh
+        frontWheelJoint.transform.position = (createdMesh.vertices[0] + createdMesh.vertices[1] + createdMesh.vertices[baseVertices.Length] + createdMesh.vertices[1 + baseVertices.Length]) / 4;
+        rearWheelJoint.transform.position = (createdMesh.vertices[baseVertices.Length - 1] + createdMesh.vertices[baseVertices.Length - 2] + createdMesh.vertices[baseVertices.Length * 2 - 1] + createdMesh.vertices[baseVertices.Length * 2 - 2]) / 4;
+
+        frontWheelJoint.transform.position = createdMesh.vertices[0];
+        rearWheelJoint.transform.position = createdMesh.vertices[baseVertices.Length - 2];
+        frontWheelJoint.connectedAnchor = createdMesh.vertices[0];
+        rearWheelJoint.connectedAnchor = createdMesh.vertices[baseVertices.Length - 2];
+        /////
 
         ResetCar();     
         draw.Clear();
         carRoot.SetActive(true);
     }
 
-    //Creates new object with rigidbody and make paren to car objects
+    //Creates new object with rigidbody and make parent to car objects
     private void ResetCar()
     {
-        frontWheelCollider.GetComponent<WheelCollider>().enabled = false;
-        rearWheelCollider.GetComponent<WheelCollider>().enabled = false;
         carRoot.transform.DetachChildren();
-        Vector3 tmpPos = new Vector3(carRoot.transform.position.x, carRoot.transform.position.y+0.5f,0);
+        Vector3 tmpPos = new Vector3(carRoot.transform.position.x, carRoot.transform.position.y+1f,0);
 
         Destroy(carRoot);
 
@@ -231,21 +273,25 @@ public class DrawBoard : MonoBehaviour, IDragHandler, IPointerDownHandler, IPoin
         testMesh.transform.localPosition = Vector3.zero;
         testMesh.transform.localRotation = Quaternion.Euler(0, 90, 0);
 
-        Rigidbody newRigidbody = carRoot.AddComponent<Rigidbody>();
-        newRigidbody.mass = createdMesh.vertexCount * 20;
-        newRigidbody.constraints = RigidbodyConstraints.FreezeRotationZ | RigidbodyConstraints.FreezeRotationY | RigidbodyConstraints.FreezePositionZ;        
-        newRigidbody.ResetCenterOfMass();
-        newRigidbody.collisionDetectionMode = CollisionDetectionMode.Continuous;
+        Rigidbody2D newRigidbody = carRoot.AddComponent<Rigidbody2D>();
+        newRigidbody.useAutoMass = true;
 
-        frontWheelCollider.GetComponent<WheelCollider>().enabled = true;
-        rearWheelCollider.GetComponent<WheelCollider>().enabled = true;
+        newRigidbody.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+        basicCarMovement.carRoot = newRigidbody;
+
+        frontWheelJoint.connectedBody = newRigidbody;
+        rearWheelJoint.connectedBody = newRigidbody;
+        for (int i = 0; i < renderers.Length; i++)
+            renderers[i].enabled = true;
+        frontWheelJoint.useMotor = true;
+        rearWheelJoint.useMotor = true;
     }
     
     //Spawns car in related position
     public void SpawnCar(Vector3 pos, Quaternion rot)
     {
         carRoot.SetActive(false);
-        carRoot.transform.position = pos;
+        carRoot.transform.position = pos + new Vector3(0,1,0);
         carRoot.transform.rotation = rot;
         carRoot.SetActive(true);
     }
